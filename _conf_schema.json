@@ -1,0 +1,8 @@
+{
+    "check_interval": {
+        "description": "检查间隔（秒）",
+        "type": "int",
+        "default": 3600,
+        "hint": "建议不低于1800秒（30分钟）"
+    }
+}
