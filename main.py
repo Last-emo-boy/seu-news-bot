@@ -3,6 +3,11 @@ import aiohttp
 import json
 from pathlib import Path
 from astrbot.api.all import *
+
+from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult, MessageChain
+from astrbot.api.star import Context, Star, register
+from astrbot.api.message_components import Plain
+
 from bs4 import BeautifulSoup
 from datetime import datetime
 from .news_db import NewsDB
