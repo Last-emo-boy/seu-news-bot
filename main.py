@@ -1,6 +1,11 @@
 import asyncio
 import aiohttp
 from astrbot.api.all import *
+
+from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult, MessageChain
+from astrbot.api.star import Context, Star, register
+from astrbot.api.message_components import Plain
+
 from bs4 import BeautifulSoup
 from datetime import datetime
 from .news_db import NewsDB
@@ -12,7 +17,7 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
-@register("news", "SEU助手", "教务处新闻订阅与查询插件，新版支持关键词和日期查询", "1.0.1", "https://github.com/yourrepo/astrbot_plugin_news")
+@register("SEU助手", "教务处新闻订阅与查询插件，新版支持关键词和日期查询", "1.0.1", "https://github.com/Last-emo-boy/seu-news-bot")
 class NewsPlugin(Star):
     def __init__(self, context: Context, config: dict):
         """
@@ -103,21 +108,22 @@ class NewsPlugin(Star):
             end_date (str): 可选，结束发布日期，格式 YYYY-MM-DD。
         """
         per_page = 5
-        # 注意：下面的 get_news 方法需要支持上述额外过滤条件
+        # 注意：NewsDB.get_news 方法需支持上述额外过滤条件
         news = self.db.get_news(channel=channel, page=page, per_page=per_page, 
                                 keyword=keyword, start_date=start_date, end_date=end_date)
         if not news:
             yield event.plain_result("暂无更多新闻")
             return
         
-        chain = MessageChain().text(f"📰 新闻查询结果（第 {page} 页）\n")
+        # 使用 event.make_result() 构造消息链
+        result = event.make_result().message(f"📰 新闻查询结果（第 {page} 页）\n")
         for idx, item in enumerate(news, 1):
             # 假设新闻记录结构为 (频道, 标题, 链接, 发布日期)
-            chain.text(f"{idx}. 【{item[0]}】{item[1]}\n链接：{item[2]}\n发布日期：{item[3]}\n\n")
+            result = result.message(f"{idx}. 【{item[0]}】{item[1]}\n链接：{item[2]}\n发布日期：{item[3]}\n\n")
         if len(news) == per_page:
             next_cmd = f"/news {channel or ''} {page+1} {keyword or ''} {start_date or ''} {end_date or ''}"
-            chain.text(f"发送 {next_cmd.strip()} 查看下一页")
-        yield event.chain_result(chain)
+            result = result.message(f"发送 {next_cmd.strip()} 查看下一页")
+        yield result  # 自动发送构造好的消息
     
     async def terminate(self):
         self.db.close()
