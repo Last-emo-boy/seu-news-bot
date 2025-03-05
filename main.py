@@ -1,8 +1,6 @@
 import asyncio
 import aiohttp
 from astrbot.api.all import *
-from astrbot.api.event import MessageChain
-
 from bs4 import BeautifulSoup
 from datetime import datetime
 from .news_db import NewsDB
