@@ -8,6 +8,11 @@ from astrbot.api import logger
 from bs4 import BeautifulSoup
 from .news_db import NewsDB
 
+from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult, MessageChain
+from astrbot.api.star import Context, Star, register
+from astrbot.api.message_components import *
+
+
 # 请求头，防止被封
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
