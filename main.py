@@ -83,12 +83,9 @@ def get_page_url(base_url, identifier, page):
       - 第一页为 {base_url}/{identifier}/list.htm
       - 其它页为 {base_url}/{identifier}/list{page}.htm
     """
-    if page == 1:
-        return f"{base_url}/{identifier}/list.htm"
-    else:
-        return f"{base_url}/{identifier}/list{page}.htm"
+    return f"{base_url}/{identifier}/list.htm" if page == 1 else f"{base_url}/{identifier}/list{page}.htm"
 
-@register("SEU助手", "新闻订阅与查询插件，支持多来源查询，自动输出最新新闻及全量更新", "1.0.2", "https://github.com/Last-emo-boy/seu-news-bot")
+@register("news", "SEU助手", "新闻订阅与查询插件，支持多来源查询、自动输出最新新闻及全量更新", "1.0.2", "https://github.com/yourrepo/astrbot_plugin_news")
 class NewsPlugin(Star):
     def __init__(self, context: Context, config: dict):
         """
@@ -115,9 +112,11 @@ class NewsPlugin(Star):
                 msg_text = f"检测到 {len(new_news)} 条新新闻：\n\n"
                 for src, cat, title, url, date_str in new_news:
                     msg_text += f"【{src} - {cat}】 {title}\n链接：{url}\n发布日期：{date_str}\n\n"
+                # 使用 MessageChain 构造消息对象，确保具有 chain 属性
+                chain = MessageChain().message(msg_text)
                 for origin in self.auto_notify_origins:
                     try:
-                        await self.context.send_message(origin, [Plain(msg_text)])
+                        await self.context.send_message(origin, chain)
                         logger.info(f"已向 {origin} 推送新新闻")
                     except Exception as e:
                         logger.error(f"发送消息到 {origin} 失败：{str(e)}")
@@ -189,7 +188,6 @@ class NewsPlugin(Star):
                             logger.error(f"      未找到 id='{container_id}'，跳过第 {page} 页")
                             continue
                         page_news = []
-                        # 若存在 ul.news_list，则采用列表结构解析
                         news_ul = news_div.find("ul", class_="news_list")
                         if news_ul:
                             for li in news_ul.find_all("li"):
@@ -212,7 +210,6 @@ class NewsPlugin(Star):
                                 full_url = href if href.startswith("http") else f"{base_url}{href}"
                                 page_news.append((source, cat_name, title, full_url, date_str))
                         else:
-                            # 表格结构解析
                             for tr in news_div.find_all("tr"):
                                 tds = tr.find_all("td", class_="main")
                                 if len(tds) < 2:
@@ -278,7 +275,6 @@ class NewsPlugin(Star):
         
         result = event.make_result().message(f"📰 新闻查询结果（第 {page} 页）\n")
         for idx, item in enumerate(news, 1):
-            # 假定新闻记录结构为 (来源, 栏目, 标题, 链接, 发布日期)
             result = result.message(f"{idx}. 【{item[0]} - {item[1]}】{item[2]}\n链接：{item[3]}\n发布日期：{item[4]}\n\n")
         if len(news) == per_page:
             next_cmd = f"/news {source or ''} {channel or ''} {page+1} {keyword or ''} {start_date or ''} {end_date or ''}"
