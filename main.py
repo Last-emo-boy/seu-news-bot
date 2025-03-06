@@ -24,7 +24,13 @@ GROUPS = [
         "source": "教务处",
         "base_url": "https://jwc.seu.edu.cn",
         "categories": {
-            "zxdt": "zxdt"
+            "zxdt": "zxdt",
+            "jwxx": "jwxx",
+            "xjgl": "xjgl",
+            "gjjl": "gjjl",
+            "sjjx": "sjjx",
+            "cbxx": "cbxx",
+            "jxyj": "jxyj"
         },
         "container_id": "wp_news_w8"  # 表格结构
     },
@@ -32,7 +38,9 @@ GROUPS = [
         "source": "外国语学院",
         "base_url": "https://sfl.seu.edu.cn",
         "categories": {
-            "学院公告": "9827"
+            "学院公告": "9827",
+            "学生公告": "9828",
+            "学术活动": "24046"
         },
         "container_id": "wp_news_w6"  # 列表结构
     },
@@ -40,7 +48,9 @@ GROUPS = [
         "source": "电子科学与工程学院",
         "base_url": "https://electronic.seu.edu.cn",
         "categories": {
-            "通知公告": "11484"
+            "通知公告": "11484",
+            "学生工作": "sywxsgz",
+            "本科生培养": "bkswsy"
         },
         "container_id": "wp_news_w6"  # 列表结构
     }
