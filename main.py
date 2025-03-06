@@ -85,7 +85,7 @@ def get_page_url(base_url, identifier, page):
     """
     return f"{base_url}/{identifier}/list.htm" if page == 1 else f"{base_url}/{identifier}/list{page}.htm"
 
-@register("news", "SEU助手", "新闻订阅与查询插件，支持多来源查询、自动输出最新新闻及全量更新", "1.0.2", "https://github.com/yourrepo/astrbot_plugin_news")
+@register("SEU助手", "新闻订阅与查询插件，支持多来源查询、自动输出最新新闻及全量更新", "1.0.2", "https://github.com/Last-emo-boy/seu-news-bot")
 class NewsPlugin(Star):
     def __init__(self, context: Context, config: dict):
         """
