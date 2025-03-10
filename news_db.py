@@ -3,7 +3,6 @@ from datetime import datetime
 from pathlib import Path
 import logging
 
-# 可选：设置日志记录
 logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent / "news.db"
@@ -15,16 +14,23 @@ class NewsDB:
     
     def _create_table(self):
         cursor = self.conn.cursor()
+        # 使用自增主键 id，去掉 url 的主键约束
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS news (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 key TEXT,
                 source TEXT,
                 channel TEXT,
                 title TEXT,
-                url TEXT PRIMARY KEY, 
+                url TEXT,
                 pub_date TEXT,
                 created_at TEXT
             )
+        ''')
+        # 可选：为 (source, channel, url) 创建唯一索引，避免同一部门重复插入相同新闻
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_news_unique 
+            ON news (source, channel, url)
         ''')
         self.conn.commit()
         logger.info("数据库表创建或检查完成。")
@@ -32,12 +38,12 @@ class NewsDB:
     def insert_news(self, news_list, key=None):
         """
         插入新闻数据。
-
+        
         参数：
           - news_list: 新闻记录列表，每条记录格式为 (source, channel, title, url, pub_date)
           - key: 可选的复合键（如 "教务处:zxdt"），若提供，则存入 key 字段；否则以 channel 作为默认 key。
-
-        注意：如果遇到重复 URL，则会跳过该记录。
+          
+        如果遇到重复记录（同一部门同一 URL），则更新发布时间和 created_at 信息（也可以选择跳过）。
         """
         cursor = self.conn.cursor()
         inserted = 0
@@ -50,8 +56,9 @@ class NewsDB:
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (record_key, source, channel, title, url, pub_date, datetime.now().isoformat()))
                 inserted += 1
-            except sqlite3.IntegrityError:
-                logger.debug(f"新闻已存在，跳过：{url}")
+            except sqlite3.IntegrityError as e:
+                # 如果记录已存在，可以选择更新或忽略。这里示例采用忽略
+                logger.debug(f"新闻已存在，跳过：{url}，错误信息：{str(e)}")
                 continue
         self.conn.commit()
         logger.info(f"插入新闻完成，成功插入 {inserted} 条记录。")
@@ -59,7 +66,6 @@ class NewsDB:
     def get_latest_date(self, key):
         """
         获取指定复合键（如 "教务处:zxdt"）的最新发布时间。
-
         返回值为字符串，如果不存在则返回 None。
         """
         cursor = self.conn.cursor()
