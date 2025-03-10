@@ -127,7 +127,7 @@ class NewsPlugin(Star):
         更新新闻数据。
 
         参数:
-          - force_update: 若为 True，则全量更新（忽略数据库判断）；否则仅获取发布时间晚于数据库中最新记录的新闻。
+          - force_update: 若为 True，则全量更新（忽略数据库判断）；否则仅获取发布时间晚于或等于数据库中最新记录的新闻。
 
         返回:
           返回本次更新中新插入的新闻列表，每条记录格式为 (来源, 栏目, 标题, 链接, 发布日期)。
@@ -138,9 +138,9 @@ class NewsPlugin(Star):
                 source = group["source"]
                 base_url = group["base_url"]
                 container_id = group["container_id"]
-                logger.info(f"正在爬取【{source}】...")
+                logger.info(f"【{source}】开始爬取...")
                 for cat_name, identifier in group["categories"].items():
-                    logger.info(f"  栏目：{cat_name} (标识：{identifier})")
+                    logger.info(f"  开始处理栏目：{cat_name} (标识：{identifier})")
                     key = f"{source}:{cat_name}"
                     latest_date = None
                     if not force_update:
@@ -148,11 +148,12 @@ class NewsPlugin(Star):
                         if latest_date:
                             latest_date = latest_date.strip()
                         logger.info(f"    数据库中最新日期为：{latest_date}")
-                    # 尝试解析数据库最新日期（只取前10位），失败则置为 None
+                    # 解析最新日期
                     latest_dt = None
                     if latest_date:
                         try:
                             latest_dt = datetime.strptime(latest_date[:10], "%Y-%m-%d")
+                            logger.info(f"    解析后的最新日期：{latest_dt}")
                         except Exception as e:
                             logger.error(f"    最新日期解析失败：{str(e)}")
                     # 获取第一页以确定总页数
@@ -179,7 +180,7 @@ class NewsPlugin(Star):
                     page = 1
                     while page <= total_pages:
                         page_url = get_page_url(base_url, identifier, page)
-                        logger.info(f"    正在爬取第 {page} 页：{page_url}")
+                        logger.info(f"    爬取第 {page} 页：{page_url}")
                         try:
                             async with session.get(page_url, headers=HEADERS) as resp:
                                 if resp.status != 200:
@@ -194,7 +195,7 @@ class NewsPlugin(Star):
                         if not news_div:
                             logger.error(f"      未找到 id='{container_id}'，跳过第 {page} 页")
                             break
-                        # 解析新闻项：支持列表结构（ul.news_list）或表格结构
+                        # 解析新闻项，支持列表结构和表格结构
                         page_news = []
                         news_ul = news_div.find("ul", class_="news_list")
                         if news_ul:
@@ -238,39 +239,53 @@ class NewsPlugin(Star):
                             logger.info(f"      第 {page} 页无新闻，跳出")
                             break
 
-                        # 过滤新新闻：如果 force_update 为 False 且存在 latest_dt，则保留发布时间严格大于 latest_dt 的新闻
+                        logger.info(f"      第 {page} 页抓取到 {len(page_news)} 条新闻")
+                        # 过滤新新闻
                         if not force_update and latest_dt:
                             new_page_news = []
                             for item in page_news:
                                 item_date_str = item[4].strip()
-                                # 如果日期为“日期未知”，则不作为新新闻（可根据需求调整）
+                                logger.info(f"        处理新闻《{item[2]}》，日期字符串：'{item_date_str}'")
                                 if item_date_str == "日期未知":
+                                    logger.info("        日期未知，跳过过滤")
                                     continue
                                 try:
                                     item_dt = datetime.strptime(item_date_str[:10], "%Y-%m-%d")
+                                    logger.info(f"        解析后的新闻日期：{item_dt}")
                                 except Exception as e:
-                                    logger.error(f"      日期解析失败：{item_date_str} {str(e)}")
+                                    logger.error(f"        日期解析失败：{item_date_str}，错误：{str(e)}")
                                     continue
-                                logger.info(f"      比较新闻日期 {item_dt} 与最新日期 {latest_dt}")
                                 if item_dt > latest_dt:
+                                    logger.info(f"        新闻日期 {item_dt} >= 最新日期 {latest_dt}，认为是新新闻")
                                     new_page_news.append(item)
+                                else:
+                                    logger.info(f"        新闻日期 {item_dt} < 最新日期 {latest_dt}，忽略")
                             if new_page_news:
-                                self.db.insert_news(new_page_news, key=f"{source}:{cat_name}")
+                                try:
+                                    self.db.insert_news(new_page_news, key=f"{source}:{cat_name}")
+                                    logger.info(f"      成功写入 {len(new_page_news)} 条新新闻到数据库，Key: {source}:{cat_name}")
+                                except Exception as e:
+                                    logger.error(f"      写入数据库失败：{str(e)}")
                                 new_news_all.extend(new_page_news)
                             else:
                                 logger.info(f"      第 {page} 页无新新闻，跳出")
                                 break
-                            # 若本页新闻数量与新新闻数量不一致，则认为后续页均为旧新闻，终止抓取
+                            # 若本页部分为旧新闻，则终止后续页抓取
                             if len(new_page_news) < len(page_news):
                                 logger.info(f"      {cat_name} 第 {page} 页部分为旧新闻，终止分页抓取")
                                 break
                         else:
-                            self.db.insert_news(page_news, key=f"{source}:{cat_name}")
+                            try:
+                                self.db.insert_news(page_news, key=f"{source}:{cat_name}")
+                                logger.info(f"      写入 {len(page_news)} 条新闻到数据库，Key: {source}:{cat_name}")
+                            except Exception as e:
+                                logger.error(f"      写入数据库失败：{str(e)}")
                             new_news_all.extend(page_news)
                         page += 1
                         await asyncio.sleep(1)
         logger.info(f"本次更新共获取 {len(new_news_all)} 条新闻")
         return new_news_all
+
 
 
 
