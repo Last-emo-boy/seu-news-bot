@@ -8,10 +8,9 @@ from astrbot.api import logger
 from bs4 import BeautifulSoup
 from .news_db import NewsDB
 
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult, MessageChain
+from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, register
-from astrbot.api.message_components import *
-
+from astrbot.api.message_components import Plain
 
 # 请求头，防止被封
 HEADERS = {
@@ -112,7 +111,6 @@ class NewsPlugin(Star):
                 msg_text = f"检测到 {len(new_news)} 条新新闻：\n\n"
                 for src, cat, title, url, date_str in new_news:
                     msg_text += f"【{src} - {cat}】 {title}\n链接：{url}\n发布日期：{date_str}\n\n"
-                # 使用 MessageChain 构造消息对象，确保具有 chain 属性
                 chain = MessageChain().message(msg_text)
                 for origin in self.auto_notify_origins:
                     try:
@@ -127,10 +125,10 @@ class NewsPlugin(Star):
     async def check_updates(self, force_update: bool = False):
         """
         更新新闻数据。
-        
+
         参数:
-          - force_update: 若为 True，则全量更新（忽略数据库判断）；否则遇到已有新闻时停止当前栏目的翻页。
-        
+          - force_update: 若为 True，则全量更新（忽略数据库判断）；否则仅获取发布时间晚于数据库中最新记录的新闻。
+
         返回:
           返回本次更新中新插入的新闻列表，每条记录格式为 (来源, 栏目, 标题, 链接, 发布日期)。
         """
@@ -143,11 +141,21 @@ class NewsPlugin(Star):
                 logger.info(f"正在爬取【{source}】...")
                 for cat_name, identifier in group["categories"].items():
                     logger.info(f"  栏目：{cat_name} (标识：{identifier})")
+                    key = f"{source}:{cat_name}"
                     latest_date = None
                     if not force_update:
-                        key = f"{source}:{cat_name}"
                         latest_date = self.db.get_latest_date(key)
+                        if latest_date:
+                            latest_date = latest_date.strip()
                         logger.info(f"    数据库中最新日期为：{latest_date}")
+                    # 尝试解析数据库最新日期（只取前10位），失败则置为 None
+                    latest_dt = None
+                    if latest_date:
+                        try:
+                            latest_dt = datetime.strptime(latest_date[:10], "%Y-%m-%d")
+                        except Exception as e:
+                            logger.error(f"    最新日期解析失败：{str(e)}")
+                    # 获取第一页以确定总页数
                     first_page_url = get_page_url(base_url, identifier, 1)
                     try:
                         async with session.get(first_page_url, headers=HEADERS) as resp:
@@ -160,52 +168,48 @@ class NewsPlugin(Star):
                         continue
                     soup = BeautifulSoup(first_text, "html.parser")
                     page_span = soup.find("span", class_="pages")
+                    total_pages = 1
                     if page_span:
                         ems = page_span.find_all("em")
                         try:
                             total_pages = int(ems[-1].text.strip())
                         except Exception as e:
                             logger.error(f"    解析总页数失败：{str(e)}")
-                            total_pages = 1
-                    else:
-                        total_pages = 1
                     logger.info(f"    共 {total_pages} 页")
-                    for page in range(1, total_pages + 1):
+                    page = 1
+                    while page <= total_pages:
                         page_url = get_page_url(base_url, identifier, page)
                         logger.info(f"    正在爬取第 {page} 页：{page_url}")
                         try:
                             async with session.get(page_url, headers=HEADERS) as resp:
                                 if resp.status != 200:
                                     logger.error(f"      第 {page} 页请求失败，状态码：{resp.status}")
-                                    continue
+                                    break
                                 page_text = await resp.text()
                         except Exception as e:
                             logger.error(f"      请求第 {page} 页出错：{str(e)}")
-                            continue
+                            break
                         soup = BeautifulSoup(page_text, "html.parser")
                         news_div = soup.find("div", id=container_id)
                         if not news_div:
                             logger.error(f"      未找到 id='{container_id}'，跳过第 {page} 页")
-                            continue
+                            break
+                        # 解析新闻项：支持列表结构（ul.news_list）或表格结构
                         page_news = []
                         news_ul = news_div.find("ul", class_="news_list")
                         if news_ul:
                             for li in news_ul.find_all("li"):
-                                title_span = li.find("span", class_="news_title")
-                                if not title_span:
-                                    title_span = li.find("span", class_="news_title5")
+                                title_span = li.find("span", class_="news_title") or li.find("span", class_="news_title5")
                                 if not title_span:
                                     continue
                                 a_tag = title_span.find("a")
                                 if not a_tag:
                                     continue
-                                title = a_tag.get("title", "").strip() or a_tag.text.strip()
+                                title = (a_tag.get("title") or a_tag.text).strip()
                                 href = a_tag.get("href", "").strip()
                                 if not href:
                                     continue
-                                date_span = li.find("span", class_="news_meta")
-                                if not date_span:
-                                    date_span = li.find("span", class_="news_meta1")
+                                date_span = li.find("span", class_="news_meta") or li.find("span", class_="news_meta1")
                                 date_str = date_span.text.strip() if date_span else "日期未知"
                                 full_url = href if href.startswith("http") else f"{base_url}{href}"
                                 page_news.append((source, cat_name, title, full_url, date_str))
@@ -221,31 +225,54 @@ class NewsPlugin(Star):
                                         title_tag = links[1]
                                     else:
                                         continue
-                                title = title_tag.get("title", "").strip() or title_tag.text.strip()
+                                title = (title_tag.get("title") or title_tag.text).strip()
                                 relative_url = title_tag.get("href", "").strip()
                                 if not relative_url:
                                     continue
                                 date_td = tds[-1]
                                 div_date = date_td.find("div")
-                                date_str = div_date.text.strip() if div_date else date_td.text.strip()
+                                date_str = (div_date.text if div_date else date_td.text).strip()
                                 full_url = relative_url if relative_url.startswith("http") else f"{base_url}{relative_url}"
                                 page_news.append((source, cat_name, title, full_url, date_str))
-                        if page_news:
+                        if not page_news:
+                            logger.info(f"      第 {page} 页无新闻，跳出")
+                            break
+
+                        # 过滤新新闻：如果 force_update 为 False 且存在 latest_dt，则保留发布时间严格大于 latest_dt 的新闻
+                        if not force_update and latest_dt:
+                            new_page_news = []
+                            for item in page_news:
+                                item_date_str = item[4].strip()
+                                # 如果日期为“日期未知”，则不作为新新闻（可根据需求调整）
+                                if item_date_str == "日期未知":
+                                    continue
+                                try:
+                                    item_dt = datetime.strptime(item_date_str[:10], "%Y-%m-%d")
+                                except Exception as e:
+                                    logger.error(f"      日期解析失败：{item_date_str} {str(e)}")
+                                    continue
+                                logger.info(f"      比较新闻日期 {item_dt} 与最新日期 {latest_dt}")
+                                if item_dt > latest_dt:
+                                    new_page_news.append(item)
+                            if new_page_news:
+                                self.db.insert_news(new_page_news, key=f"{source}:{cat_name}")
+                                new_news_all.extend(new_page_news)
+                            else:
+                                logger.info(f"      第 {page} 页无新新闻，跳出")
+                                break
+                            # 若本页新闻数量与新新闻数量不一致，则认为后续页均为旧新闻，终止抓取
+                            if len(new_page_news) < len(page_news):
+                                logger.info(f"      {cat_name} 第 {page} 页部分为旧新闻，终止分页抓取")
+                                break
+                        else:
                             self.db.insert_news(page_news, key=f"{source}:{cat_name}")
                             new_news_all.extend(page_news)
-                            if not force_update and latest_date:
-                                try:
-                                    page_dates = [datetime.strptime(n[4], "%Y-%m-%d") for n in page_news if n[4] != "日期未知"]
-                                    if page_dates and min(page_dates) <= datetime.strptime(latest_date, "%Y-%m-%d"):
-                                        logger.info(f"      {cat_name} 第 {page} 页达到已有新闻日期，跳出")
-                                        break
-                                except Exception as e:
-                                    logger.error(f"      日期比较失败：{str(e)}")
-                        else:
-                            break
+                        page += 1
                         await asyncio.sleep(1)
         logger.info(f"本次更新共获取 {len(new_news_all)} 条新闻")
         return new_news_all
+
+
 
     @filter.command("news")
     async def get_news(self, event: AstrMessageEvent, 
